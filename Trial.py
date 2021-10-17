@@ -10,7 +10,7 @@ from optax import adam
 from scipy.optimize import differential_evolution, dual_annealing, minimize
 from jax.config import config
 config.update("jax_enable_x64", True)
-jax.config.update('jax_disable_jit', True)
+config.update('jax_disable_jit', True)
 
 class Species:
     heat_of_formation_298 = jnp.array([-110.525, -393.509, -200.660, 0.0, -241.818]) * 1000  # J
@@ -64,13 +64,13 @@ class Reactor:
     e_cat = 0.39  # void fraction of catalyst bed
     p_cat = 1100.0  # kg/m3, density of catalyst bed
     a = 1.0  # activity of catalyst,
-    D_i = 0.038  # m, internal diameter of reactor tube
+    D_i = 0.038  # m, internal diameter of self tube
     MW_i = jnp.array(
         [28.01, 44.01, 32.04, 1.0079, 18.015, 16.04, 28.0134])  # molecular weights (CO, CO2, CH3OH, H2, H20, CH4, N2)
-    U_shell = 631.0  # W/m2K, overall heat transfer coefficient from reactor tube-side to shell-side
+    U_shell = 631.0  # W/m2K, overall heat transfer coefficient from self tube-side to shell-side
     z = 7.0  # m, length of PFR
     volume_t = jnp.pi * D_i ** 2 / 4 * z
-    A = jnp.pi * D_i ** 2 / 4  # cross-sectional area of reactor tube
+    A = jnp.pi * D_i ** 2 / 4  # cross-sectional area of self tube
     n_i = 1.0
     T_shell = 511.0  # K, temperature of boiling water on the shell side
     F_i0 = jnp.array([10727.0, 23684.2, 756.7, 9586.5, 108.8, 4333.1,
@@ -88,9 +88,9 @@ class Reactor:
         K_constants = jnp.array([[3453.38, 0.0], [0.499, 17197], [6.62 * 10 ** -11, 124119]])  # K by A/B
         Keq_constants = jnp.array([[3066.0, 10.592], [-2073.0, -2.029]])  # K by A/B
 
-        k = k_constants[:, 0] * jnp.exp(k_constants[:, 1] / reactor.R / T)
-        K = K_constants[:, 0] * jnp.exp(K_constants[:, 1] / reactor.R / T)
-        Keq = 10.0 ** (Keq_constants[:, 0] / (T) - Keq_constants[:, 1])
+        k = k_constants[:, 0] * jnp.exp(k_constants[:, 1] / self.R / T)
+        K = K_constants[:, 0] * jnp.exp(K_constants[:, 1] / self.R / T)
+        Keq = 10.0 ** (Keq_constants[:, 0] / T - Keq_constants[:, 1])
         return jnp.concatenate((k, K, Keq))
 
     def rate_expression(self, T, F_i):
@@ -125,14 +125,14 @@ class Reactor:
         return y_i
 
     def partial_pressure(self, F_i):
-        p = F_i/jnp.sum(F_i) * reactor.P
+        p = F_i/jnp.sum(F_i) * self.P
         return p
 
     def total_molar_t(self, F_i):
         return jnp.sum(F_i)
 
     def var_0(self, T_0):
-        F_i0 = reactor.F_i0
+        F_i0 = self.F_i0
         return jnp.concatenate((F_i0, T_0))
 
     @partial(jax.jit, static_argnums=(0))
@@ -144,18 +144,17 @@ class Reactor:
         r_i = self.rate_expression(T, F_i)
         Cp = self.species.specific_heat(T, y_i)
         Hf = self.species.heat_of_formation(T)
-        Ct = reactor.P / (reactor.R * 10 ** -5) / T
-
-        dFdz = reactor.Nt * reactor.A * reactor.p_cat * (1 - reactor.e_cat) * r_i
-        dTdz = jnp.array([(reactor.p_cat * reactor.a / reactor.e_cat / Ct / Cp * (jnp.sum(reactor.n_i * r_i[
-                                                                                                        0:5] * -Hf)) + 0*jnp.pi * reactor.D_i / reactor.A / reactor.e_cat / Ct / Cp * reactor.U_shell * (
-                                       reactor.T_shell - T)) * reactor.A * reactor.e_cat * Ct / ft])
-        return jnp.concatenate((dFdz, dTdz))
+        Ct = self.P / (self.R * 10 ** -5) / T
+        Ct = jnp.sum(F_i)/(self.volume_t*self.Nt)*100
+        dFdz = self.Nt * self.A * self.p_cat * (1 - self.e_cat) * r_i
+        dTdz = (self.p_cat * self.a / self.e_cat / Ct / Cp * (jnp.sum(self.n_i * r_i[0:5] * -Hf)) + jnp.pi * self.D_i / self.A / self.e_cat / Ct / Cp * self.U_shell * (
+                                       self.T_shell - T)) * self.A * self.e_cat * Ct / ft*1000.0
+        return jnp.concatenate((dFdz, dTdz[None]))
 
     def mass_energy_balance(self, T_0):
         Z = jnp.linspace(0.0, self.z, self.no_ode_steps)
         var_0 = self.var_0(T_0)
-        sol = jodeint(self.pfr, var_0, Z)
+        sol = odeint(self.pfr, var_0, Z)
         return sol
 
     def objective_function(self, T_0):
@@ -165,18 +164,17 @@ class Reactor:
     @partial(jax.jit, static_argnums=(0))
     def step(self, dept, opt_state):
         grads = jax.grad(self.objective_function)(dept)
-        updates, opt_state = reactor.optimizer.update(grads, opt_state)
+        updates, opt_state = self.optimizer.update(grads, opt_state)
         dept = optax.apply_updates(dept, updates)
         return dept
 
     def loop(self, dept):
         deptvalues = []
-        opt_state = reactor.optimizer.init(dept)
+        opt_state = self.optimizer.init(dept)
         for _ in range(self.no_optim_steps):
             dept = self.step(dept, opt_state)
             deptvalues.append(dept)
         return deptvalues
-
 
 class Separator:
     species = Species()
@@ -198,22 +196,24 @@ class Separator:
         return jnp.abs(RR)
 
 if __name__ == '__main__':
-    initial_temperature = jnp.array([550.0])  # K
+    initial_temperature = jnp.array([523.0])  # K
     reactor = Reactor()
     sol = reactor.mass_energy_balance(initial_temperature)
     Z = jnp.linspace(0.0, reactor.z, reactor.no_ode_steps)
 
     # Temperature vs length plots
+    plt.figure()
     plt.plot(Z, sol[:, 7], 'ro', markersize=1 * 0.5)
     plt.xlabel("Length of reactor (m)")
     plt.ylabel("Temperature (K)")
     plt.savefig("T vs length")
 
     # Methanol vs length plots
-    # plt.plot(Z, sol[:,2])
-    # plt.xlabel("reactor length (m)")
-    # plt.ylabel("Methanol molar flow (mol/s)")
-    # plt.savefig("CH3OH mole flow vs length")
+    plt.figure()
+    plt.plot(Z, sol[:,2])
+    plt.xlabel("reactor length (m)")
+    plt.ylabel("Methanol molar flow (mol/s)")
+    plt.savefig("CH3OH mole flow vs length")
 
     # # Rate plots
     temperature_range = jnp.linspace(298,600,100)
