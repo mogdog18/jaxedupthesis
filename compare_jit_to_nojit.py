@@ -1,4 +1,4 @@
-from JAXedThesisMainCode import Reactor, Separator, Species
+from models import Reactor, Separator, Species
 import jax.numpy as jnp
 import time
 import jax
@@ -152,7 +152,7 @@ if __name__ == '__main__':
     # labels, heights, error bar heights
     labels = ["reactor MB", "separator MB"]
     x_pos = jnp.arange(len(labels))
-    #
+
     r_CTEs = [avg_time_run_reactor, avg_time_run_separator]
     r_error = [std_time_run_reactor, std_time_run_reactor]
     cr_CTEs = [avg_time_compile_and_run_reactor, avg_time_compile_and_run_reactor]
@@ -175,7 +175,7 @@ if __name__ == '__main__':
     ax.set_ylabel("Computational time (s)", fontsize=11)
     plt.ylim([0, 10])
     plt.savefig("jitbargraph.svg", format='svg', dpi=1200)
-    #
+
     # print(avg_jit_time_ODE/avg_nojit_time_ODE)
     # print(avg_jit_time_separator / avg_nojit_time_separator)
 

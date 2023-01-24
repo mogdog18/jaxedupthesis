@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from JAXedThesisMainCode import Reactor, Separator, Species, Process, MixSplit
+from models import Reactor, Separator, Species, Process, MixSplit
 from cyipopt import minimize_ipopt
 
 reactor = Reactor()

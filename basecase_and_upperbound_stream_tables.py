@@ -5,7 +5,7 @@ from jax.config import config
 import numpy as np
 config.update("jax_enable_x64", True)
 import pandas as pd
-from JAXedThesisMainCode import Reactor, Separator, Species, Process, MixSplit
+from models import Reactor, Separator, Species, Process, MixSplit
 
 # code containing functions to determine the base case and value of the upper bound of recycle ratio
 
@@ -82,6 +82,7 @@ if __name__ == '__main__':
     print(process.objective_function_cost(x0))
     conversion = F6[2]/(F1[0] + F1[1] + F1[2] + F1[5])
     print(conversion)
+
     # Upper Bound
     split_factor = jnp.array([0.8])
     x0 = jnp.array([221.67304, 298.6591, 41.420616, 4764.6484, 5.7503546, 373.87905, 399.6497,
